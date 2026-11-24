@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-  BadgeCheck, Car, CarFront, Flag, Handshake,
+  AlertCircle, BadgeCheck, Car, CarFront, Flag, Handshake,
   ListChecks, Lock, Map, MessageSquare, Search, ShieldCheck, Store, Truck,
 } from 'lucide-react';
 import { Navbar } from '../../component/Navbar/Navbar';
@@ -9,12 +9,14 @@ import { Container } from '../../component/Container/Container';
 import { HeroSearch } from '../../component/HeroSearch/HeroSearch';
 import { SectionHeader } from '../../component/SectionHeader/SectionHeader';
 import { ListingGrid } from '../../component/ListingGrid/ListingGrid';
+import { ListingCardSkeleton } from '../../component/ListingCard/ListingCard';
 import { Tabs } from '../../component/Tabs/Tabs';
 import { Button, LinkButton } from '../../component/Button/Button';
 import { VerifiedBadge } from '../../component/Badges/Badges';
 import { Avatar } from '../../component/Avatar/Avatar';
-import { mockListings } from '../../data/mockListings';
 import './HomePage.css';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const bodyTypes = [
   { label: 'Sedan', count: 382, icon: Car },
@@ -28,7 +30,34 @@ const bodyTypes = [
 
 export function HomePage() {
   const [listingType, setListingType] = useState('sale');
-  const listings = mockListings.filter((item) => item.type === listingType).slice(0, 8);
+  const [listings, setListings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchListings = useCallback(async (type, signal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/listings?type=${type}&limit=8`, { signal });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to load listings');
+      }
+      setListings(payload.listings || []);
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      setError(err.message || 'Unable to connect to the server.');
+      setListings([]);
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchListings(listingType, controller.signal);
+    return () => controller.abort();
+  }, [listingType, fetchListings]);
 
   return (
     <>
@@ -95,7 +124,35 @@ export function HomePage() {
               value={listingType}
               onChange={setListingType}
             />
-            <ListingGrid listings={listings} />
+            {loading ? (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {Array.from({ length: 4 }, (_, index) => (
+                  <ListingCardSkeleton key={index} />
+                ))}
+              </div>
+            ) : error ? (
+              <div role="alert" className="flex flex-col gap-3 rounded-card border border-danger/30 bg-background p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="mt-0.5 size-5 shrink-0 text-danger" />
+                  <div>
+                    <p className="font-semibold text-primary">Could not load listings from the database</p>
+                    <p className="mt-1 text-sm text-text-secondary">{error}</p>
+                  </div>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => fetchListings(listingType)}>
+                  Retry
+                </Button>
+              </div>
+            ) : listings.length === 0 ? (
+              <div className="rounded-card border bg-background p-8 text-center">
+                <p className="font-semibold text-primary">No active listings found</p>
+                <p className="mt-1 text-sm text-text-secondary">
+                  There are currently no active cars {listingType === 'sale' ? 'for sale' : 'for rent'} in the database.
+                </p>
+              </div>
+            ) : (
+              <ListingGrid listings={listings} />
+            )}
           </Container>
         </section>
 
