@@ -1,15 +1,34 @@
-import { useState } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { ListingsProvider } from './context/ListingsContext';
+import { FavoritesProvider } from './context/FavoritesContext';
+import { HomePage } from './pages/HomePage/HomePage';
+import { SearchResultsPage } from './pages/SearchResultsPage/SearchResultsPage';
+import { ListingDetailPage } from './pages/ListingDetailPage/ListingDetailPage';
+import './App.css';
 
-import "./App.css";
-
-function App() {
-  const [count, setCount] = useState(0);
-
+export default function App() {
   return (
-    <>
-      <h1>HELLO WORLD</h1>
-    </>
+    <AuthProvider>
+      <ListingsProvider>
+        <FavoritesProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/search" element={<SearchResultsPage />} />
+              <Route path="/listings" element={<SearchResultsPage />} />
+              <Route path="/listings/:id" element={<ListingDetailPageWrapper />} />
+              <Route path="/listing/:id" element={<ListingDetailPageWrapper />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </FavoritesProvider>
+      </ListingsProvider>
+    </AuthProvider>
   );
 }
 
-export default App;
+function ListingDetailPageWrapper() {
+  const { id } = useParams();
+  return <ListingDetailPage id={decodeURIComponent(id || '')} />;
+}
