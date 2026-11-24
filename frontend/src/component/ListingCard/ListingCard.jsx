@@ -6,7 +6,7 @@ import { Skeleton } from '../Skeleton/Skeleton';
 import { Avatar } from '../Avatar/Avatar';
 import { useFavorites } from '../../context/FavoritesContext';
 
-export function ListingCard({ listing, initialFavorite, forceHover = false }) {
+export function ListingCard({ listing, initialFavorite, forceHover = false, layout = 'grid' }) {
   const favorites = useFavorites();
   const [demoFavorite, setDemoFavorite] = useState(Boolean(initialFavorite));
   const showcase = initialFavorite !== undefined;
@@ -17,11 +17,12 @@ export function ListingCard({ listing, initialFavorite, forceHover = false }) {
     <article
       className={cn(
         'group relative overflow-hidden rounded-card border bg-surface shadow-card transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-card-hover focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2',
+        layout === 'list' && 'sm:flex sm:min-h-52',
         forceHover && '-translate-y-0.5 shadow-card-hover',
       )}
     >
       <a href={`/listings/${listing.id}`} className="absolute inset-0 z-10 rounded-card" aria-label={`View ${listing.title}`} />
-      <div className="relative aspect-video overflow-hidden bg-muted-soft">
+      <div className={cn('relative aspect-video overflow-hidden bg-muted-soft', layout === 'list' && 'sm:aspect-auto sm:w-2/5 sm:shrink-0')}>
         <img
           src={listing.images[0]}
           alt={`${listing.title} exterior`}
@@ -49,7 +50,7 @@ export function ListingCard({ listing, initialFavorite, forceHover = false }) {
           </div>
         )}
       </div>
-      <div className="p-4">
+      <div className={cn('min-w-0 flex-1 p-4', layout === 'list' && 'sm:flex sm:flex-col sm:justify-center sm:p-5')}>
         <h3 className="truncate text-base font-semibold leading-6 text-text-primary">{listing.title}</h3>
         <div className="mt-2 flex items-baseline gap-1">
           <p className="price text-xl font-bold leading-7 text-primary">
