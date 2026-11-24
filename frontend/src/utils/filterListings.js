@@ -8,20 +8,20 @@ function listParam(params, key) {
 }
 
 export function parseListingFilters(params) {
-  const type = params.get('type');
+  const type = (params.get('type') || params.get('purpose') || '').toLowerCase();
   const sort = params.get('sort');
   return {
-    q: params.get('q') || undefined,
-    type: type === 'sale' || type === 'rent' ? type : undefined,
+    q: params.get('q') || params.get('search') || undefined,
+    type: ['sale', 'buy'].includes(type) ? 'sale' : type === 'rent' ? 'rent' : undefined,
     make: params.get('make') || undefined,
     model: params.get('model') || undefined,
     body: listParam(params, 'body'),
-    priceMin: numberParam(params, 'priceMin'),
-    priceMax: numberParam(params, 'priceMax'),
-    yearMin: numberParam(params, 'yearMin'),
-    yearMax: numberParam(params, 'yearMax'),
-    mileageMax: numberParam(params, 'mileageMax'),
-    fuel: listParam(params, 'fuel'),
+    priceMin: numberParam(params, 'minPrice') ?? numberParam(params, 'priceMin'),
+    priceMax: numberParam(params, 'maxPrice') ?? numberParam(params, 'priceMax'),
+    yearMin: numberParam(params, 'minYear') ?? numberParam(params, 'yearMin'),
+    yearMax: numberParam(params, 'maxYear') ?? numberParam(params, 'yearMax'),
+    mileageMax: numberParam(params, 'maxMileage') ?? numberParam(params, 'mileageMax'),
+    fuel: listParam(params, 'fuelType').length ? listParam(params, 'fuelType') : listParam(params, 'fuel'),
     transmission: listParam(params, 'transmission'),
     color: listParam(params, 'color'),
     location: params.get('location') || undefined,
