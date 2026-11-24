@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight, Calendar, Check, ChevronLeft, ChevronRight, Clock,
+  AlertCircle, ArrowRight, Calendar, Check, ChevronLeft, ChevronRight, Clock,
   Eye, Flag, Fuel, Gauge, Heart, MapPin, MessageSquare, Settings2, ShieldAlert, ShieldCheck,
 } from 'lucide-react';
 import { Navbar } from '../../component/Navbar/Navbar';
@@ -13,44 +13,93 @@ import { Skeleton } from '../../component/Skeleton/Skeleton';
 import { ListingTypeBadge, NewBadge, StatusBadge, UnverifiedBadge, VerifiedBadge } from '../../component/Badges/Badges';
 import { SectionHeader } from '../../component/SectionHeader/SectionHeader';
 import { ListingCard } from '../../component/ListingCard/ListingCard';
-import { mockListings } from '../../data/mockListings';
 import { cn, formatNumber, relativeDate } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
-import { useListings } from '../../context/ListingsContext';
 import { useFavorites } from '../../context/FavoritesContext';
 import './ListingDetailPage.css';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const periodLabel = { daily: 'day', weekly: 'week', monthly: 'month' };
 
 export function ListingDetailPage({ id }) {
-  const { getListing, setStatus: setListingStatus, deleteListing } = useListings();
   const favorites = useFavorites();
-  const listing = getListing(id);
   const { user } = useAuth();
-  const loggedIn = Boolean(user);
+
+  const [listing, setListing] = useState(null);
+  const [sellerActiveCount, setSellerActiveCount] = useState(0);
+  const [similar, setSimilar] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
 
-  useEffect(() => {
-    document.title = `${listing ? fullTitle(listing) : 'Listing not found'} · 33-AutoHub`;
-    const timer = window.setTimeout(() => setLoading(false), 500);
-    return () => window.clearTimeout(timer);
+  const fetchListing = useCallback(async (listingId, signal) => {
+    setLoading(true);
+    setError(null);
+    setNotFound(false);
+    try {
+      const response = await fetch(`${API_BASE}/listings/${encodeURIComponent(listingId)}`, { signal });
+      if (response.status === 404) {
+        setListing(null);
+        setNotFound(true);
+        document.title = 'Listing not found · 33-AutoHub';
+        return;
+      }
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'Failed to load listing details');
+      }
+      setListing(payload.listing);
+      setSellerActiveCount(payload.sellerActiveCount ?? 0);
+      setSimilar(payload.similar || []);
+      document.title = `${fullTitle(payload.listing)} · 33-AutoHub`;
+    } catch (err) {
+      if (err.name === 'AbortError') return;
+      setError(err.message || 'Unable to load listing details.');
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
   }, []);
 
-  if (!listing) return <NotFound />;
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchListing(id, controller.signal);
+    return () => controller.abort();
+  }, [id, fetchListing]);
 
-  const isOwner = user?.id === listing.seller.id;
-  const status = listing.status;
-  const setStatus = (next) => setListingStatus(listing.id, next);
-  const saved = favorites.isFavorite(listing.id);
+  if (!loading && notFound) return <NotFound />;
+
+  if (!loading && error) {
+    return (
+      <>
+        <Navbar />
+        <main className="flex min-h-screen items-center justify-center px-4">
+          <div role="alert" className="max-w-md rounded-card border border-danger/30 bg-surface p-6 text-center shadow-card">
+            <AlertCircle className="mx-auto size-8 text-danger" />
+            <h1 className="mt-3 text-xl font-bold text-primary">Could not load listing</h1>
+            <p className="mt-2 text-sm text-text-secondary">{error}</p>
+            <div className="mt-5 flex justify-center gap-3">
+              <Button variant="accent" onClick={() => fetchListing(id)}>Retry</Button>
+              <LinkButton href="/" variant="secondary">Back home</LinkButton>
+            </div>
+          </div>
+        </main>
+        <Footer />
+      </>
+    );
+  }
+
+  const isOwner = Boolean(listing && user?.id === listing.seller.id);
+  const status = listing?.status ?? 'active';
+  const saved = listing ? favorites.isFavorite(listing.id) : false;
   const inactive = status !== 'active';
-  const closedLabel = listing.type === 'rent' ? 'rented' : 'sold';
-  const typePath = listing.type === 'rent' ? 'Rent' : 'Buy';
+  const typePath = listing?.type === 'rent' ? 'Rent' : 'Buy';
   const lastSearch = sessionStorage.getItem('autohub:lastSearch');
-  const backToSearch = lastSearch || `/search?type=${listing.type}`;
+  const backToSearch = lastSearch || `/search?type=${listing?.type || 'sale'}`;
 
   const toggleSave = () => {
+    if (!listing) return;
     favorites.toggleFavorite(listing.id);
     if (user) setAnnouncement(saved ? 'Removed from saved listings' : 'Listing saved');
   };
@@ -60,24 +109,26 @@ export function ListingDetailPage({ id }) {
       <Navbar />
       <main className="pb-28 lg:pb-0">
         <Container className="py-6 lg:py-8">
-          <div className="flex items-center justify-between gap-4">
-            <nav aria-label="Breadcrumb" className="min-w-0 truncate text-sm text-text-secondary">
-              <a href="/" className="hover:text-accent">Home</a>
-              <span className="mx-2">/</span>
-              <a href={backToSearch} className="hover:text-accent">{typePath}</a>
-              <span className="mx-2">/</span>
-              <a href={`/search?type=${listing.type}&make=${encodeURIComponent(listing.make)}`} className="hover:text-accent">{listing.make}</a>
-              <span className="mx-2">/</span>
-              <span aria-current="page" className="font-medium text-primary">{listing.model}</span>
-            </nav>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="icon" aria-label="Report listing" onClick={() => alert('Report submitted')}>
-                <Flag className="size-5" />
-              </Button>
+          {listing && (
+            <div className="flex items-center justify-between gap-4">
+              <nav aria-label="Breadcrumb" className="min-w-0 truncate text-sm text-text-secondary">
+                <a href="/" className="hover:text-accent">Home</a>
+                <span className="mx-2">/</span>
+                <a href={backToSearch} className="hover:text-accent">{typePath}</a>
+                <span className="mx-2">/</span>
+                <a href={`/search?type=${listing.type}&make=${encodeURIComponent(listing.make)}`} className="hover:text-accent">{listing.make}</a>
+                <span className="mx-2">/</span>
+                <span aria-current="page" className="font-medium text-primary">{listing.model}</span>
+              </nav>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button variant="ghost" size="icon" aria-label="Report listing" onClick={() => alert('Report submitted')}>
+                  <Flag className="size-5" />
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
-          {inactive && (
+          {listing && inactive && (
             <div className="mt-5 flex flex-col gap-3 rounded-card bg-muted-soft px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="font-semibold text-muted">This car has been {status}</p>
               <Button variant="secondary" size="sm" onClick={() => document.getElementById('similar')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
@@ -88,7 +139,7 @@ export function ListingDetailPage({ id }) {
 
           <p aria-live="polite" className="sr-only">{announcement}</p>
 
-          {loading ? (
+          {loading || !listing ? (
             <DetailSkeleton />
           ) : (
             <div className="mt-5 grid gap-8 lg:grid-cols-12">
@@ -101,7 +152,7 @@ export function ListingDetailPage({ id }) {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <ListingTypeBadge type={listing.type} />
-                      {Date.now() - new Date(listing.createdAt).getTime() < 48 * 3600000 && <NewBadge />}
+                      {isRecentListing(listing.createdAt) && <NewBadge />}
                       {inactive && <StatusBadge status={status} />}
                     </div>
                     <PriceBlock listing={listing} inactive={inactive} />
@@ -134,7 +185,7 @@ export function ListingDetailPage({ id }) {
                   {listing.rentalConditions && <RentalConditions listing={listing} />}
 
                   <div className="order-1 lg:order-none lg:border-t lg:pt-6">
-                    <SellerCard listing={listing} />
+                    <SellerCard listing={listing} activeCount={sellerActiveCount} />
                     {!listing.seller.isVerified && !isOwner && (
                       <div role="note" className="mt-4 flex gap-3 rounded-card bg-warning-soft p-4 text-sm leading-6 text-warning">
                         <ShieldAlert className="mt-0.5 size-5 shrink-0" />
@@ -147,8 +198,8 @@ export function ListingDetailPage({ id }) {
 
               <div className="grid gap-12 lg:col-span-7 lg:row-start-2">
                 <Specifications listing={listing} />
-                <Description text={listing.description} />
-                <Features features={listing.features} />
+                <Description text={listing.description || 'No description provided.'} />
+                {listing.features.length > 0 && <Features features={listing.features} />}
                 <LocationBlock listing={listing} />
                 <SafetyTips />
               </div>
@@ -156,12 +207,11 @@ export function ListingDetailPage({ id }) {
           )}
         </Container>
 
-        <SimilarCars listing={listing} />
+        {!loading && listing && similar.length > 0 && <SimilarCars similar={similar} />}
       </main>
       <Footer />
 
-      {/* Mobile action bar */}
-      {!loading && !isOwner && (
+      {!loading && listing && !isOwner && (
         <div className="fixed bottom-0 inset-x-0 z-40 border-t bg-surface p-4 lg:hidden">
           <div className="flex gap-3">
             <Button variant="secondary" size="lg" aria-pressed={saved} onClick={toggleSave} className="flex-1">
@@ -175,8 +225,7 @@ export function ListingDetailPage({ id }) {
         </div>
       )}
 
-      {/* Simple contact modal */}
-      {contactOpen && (
+      {contactOpen && listing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-primary/40 p-4" onClick={() => setContactOpen(false)}>
           <div className="w-full max-w-md rounded-modal bg-surface p-6 shadow-float" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-xl font-semibold">Contact {listing.seller.name}</h2>
@@ -191,6 +240,10 @@ export function ListingDetailPage({ id }) {
       )}
     </>
   );
+}
+
+function isRecentListing(createdAt) {
+  return Date.now() - new Date(createdAt).getTime() < 48 * 3600000;
 }
 
 function fullTitle(listing) {
@@ -233,7 +286,10 @@ function PriceBlock({ listing, inactive }) {
   const [period, setPeriod] = useState('daily');
   const price = listing.type === 'rent' ? listing.rentalPrice[period] : listing.price;
   const days = period === 'weekly' ? 7 : 30;
-  const saving = period === 'daily' ? 0 : Math.round((1 - price / (listing.rentalPrice.daily * days)) * 100);
+  const saving = period === 'daily' || !listing.rentalPrice.daily
+    ? 0
+    : Math.round((1 - price / (listing.rentalPrice.daily * days)) * 100);
+
   return (
     <div className="mt-4">
       {listing.type === 'rent' && (
@@ -302,9 +358,8 @@ function RentalConditions({ listing, className }) {
   );
 }
 
-function SellerCard({ listing }) {
+function SellerCard({ listing, activeCount }) {
   const { seller } = listing;
-  const active = mockListings.filter((item) => item.seller.id === seller.id && item.status === 'active').length;
   const since = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric' }).format(new Date(seller.memberSince));
   return (
     <div className="flex gap-3 rounded-card border bg-surface p-4 lg:border-0 lg:p-0">
@@ -316,7 +371,7 @@ function SellerCard({ listing }) {
           <a href={`/seller/${seller.id}`} className="text-base font-semibold text-text-primary hover:text-accent hover:underline">{seller.name}</a>
           {seller.isVerified ? <VerifiedBadge /> : <UnverifiedBadge />}
         </div>
-        <p className="mt-1 text-sm text-text-secondary">Member since {since} · {active} active listings</p>
+        <p className="mt-1 text-sm text-text-secondary">Member since {since} · {activeCount} active listings</p>
         <a href={`/seller/${seller.id}`} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-accent hover:text-accent-hover hover:underline">
           View seller profile <ArrowRight className="size-4" />
         </a>
@@ -332,7 +387,7 @@ function Specifications({ listing }) {
     ['Transmission', capitalize(listing.transmission)],
     ['Body type', listing.bodyType === 'suv' ? 'SUV' : capitalize(listing.bodyType)],
     ['Color', listing.color], ['Listing type', listing.type === 'rent' ? 'For rent' : 'For sale'],
-    ['Location', listing.location], ['Listing ID', listing.id.toUpperCase()],
+    ['Location', listing.location], ['Listing ID', String(listing.id).slice(0, 8).toUpperCase()],
   ];
   return (
     <section aria-labelledby="specs-title">
@@ -388,10 +443,11 @@ function Features({ features }) {
 }
 
 function LocationBlock({ listing }) {
+  const locationText = listing.commune ? `${listing.commune}, ${listing.location}` : listing.location;
   return (
     <section aria-labelledby="location-title">
       <h2 id="location-title" className="text-2xl font-bold leading-8">Location</h2>
-      <p className="mt-3 text-text-primary">{listing.commune}, {listing.location}</p>
+      <p className="mt-3 text-text-primary">{locationText}</p>
       <div role="img" aria-label={`Approximate location: ${listing.location}`} className="mt-4 flex aspect-[21/9] flex-col items-center justify-center gap-2 rounded-card border bg-muted-soft">
         <span className="flex size-12 items-center justify-center rounded-full bg-surface text-primary shadow-card">
           <MapPin className="size-6" />
@@ -429,22 +485,8 @@ function SafetyTips() {
   );
 }
 
-function SimilarCars({ listing }) {
+function SimilarCars({ similar }) {
   const track = useRef(null);
-  const similar = mockListings
-    .filter((item) => item.id !== listing.id && item.type === listing.type)
-    .map((item) => ({
-      item,
-      score:
-        (item.bodyType === listing.bodyType ? 0 : 1) +
-        Math.abs((item.type === 'rent' ? item.rentalPrice.daily : item.price) - (listing.type === 'rent' ? listing.rentalPrice.daily : listing.price)) /
-        Math.max(listing.type === 'rent' ? listing.rentalPrice.daily : listing.price, 1) +
-        (item.status === 'active' ? 0 : 2),
-    }))
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 8)
-    .map(({ item }) => item);
-
   const scroll = (direction) =>
     track.current?.scrollBy({ left: direction * track.current.clientWidth * 0.8, behavior: 'smooth' });
 
@@ -507,6 +549,6 @@ function NotFound() {
 }
 
 function capitalize(value) {
+  if (!value) return '';
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
-
