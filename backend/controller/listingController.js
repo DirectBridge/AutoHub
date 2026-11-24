@@ -172,52 +172,6 @@ async function getListings(req, res) {
     if (type === 'sale' || type === 'buy') query = query.eq('type', 'sale');
     else if (type === 'rent') query = query.eq('type', 'rent');
 
-
-    const term = safeSearchTerm(params.q ?? params.search);
-    if (term) {
-      const pattern = `%${term}%`;
-      query = query.or([
-        `make.ilike.${pattern}`,
-        `model.ilike.${pattern}`,
-        `title.ilike.${pattern}`,
-        `description.ilike.${pattern}`,
-      ].join(','));
-    }
-
-    for (const [column, key] of [['make', 'make'], ['model', 'model'], ['location', 'location']]) {
-      if (params[key]) query = query.ilike(column, `%${safeSearchTerm(params[key])}%`);
-    }
-
-    const minPrice = numberParam(params, 'minPrice', 'priceMin');
-    const maxPrice = numberParam(params, 'maxPrice', 'priceMax');
-    const minYear = numberParam(params, 'minYear', 'yearMin');
-    const maxYear = numberParam(params, 'maxYear', 'yearMax');
-    const maxMileage = numberParam(params, 'maxMileage', 'mileageMax');
-    if (minPrice !== undefined) query = query.gte(priceColumn, minPrice);
-    if (maxPrice !== undefined) query = query.lte(priceColumn, maxPrice);
-    if (minYear !== undefined) query = query.gte('year', minYear);
-    if (maxYear !== undefined) query = query.lte('year', maxYear);
-    if (maxMileage !== undefined) query = query.lte('mileage', maxMileage);
-
-    const bodyTypes = values(params.bodyType ?? params.body, BODY_TYPES);
-    const fuelTypes = values(params.fuelType ?? params.fuel, FUEL_TYPES);
-    const transmissions = values(params.transmission, TRANSMISSIONS);
-    if (bodyTypes.length === 1) query = query.eq('body_type', bodyTypes[0]);
-    else if (bodyTypes.length > 1) query = query.in('body_type', bodyTypes);
-    if (fuelTypes.length === 1) query = query.eq('fuel_type', fuelTypes[0]);
-    else if (fuelTypes.length > 1) query = query.in('fuel_type', fuelTypes);
-    if (transmissions.length === 1) query = query.eq('transmission', transmissions[0]);
-    else if (transmissions.length > 1) query = query.in('transmission', transmissions);
-
-    if (params.color) {
-      const colors = String(params.color).split(',').map((color) => color.trim()).filter(Boolean);
-      if (colors.length === 1) query = query.ilike('color', colors[0]);
-      else if (colors.length > 1) query = query.in('color', colors);
-    }
-    if (params.verified === 'true') query = query.eq('seller.is_verified', true);
-
-    const { data, error, count } = await query;
-
     const term = safeSearchTerm(params.q ?? params.search);
     if (term) {
       const pattern = `%${term}%`;
