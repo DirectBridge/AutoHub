@@ -40,20 +40,60 @@ function mapListingRow(row) {
   };
 }
 
-/**
- * GET /api/listings
- * Fetches active vehicle listings for the homepage (supports ?type=sale|rent and ?limit=8).
- */
+const SORTS = {
+  newest: [['created_at', false], ['id', true]],
+  price_asc: [['price', true], ['created_at', false], ['id', true]],
+  price_desc: [['price', false], ['created_at', false], ['id', true]],
+  mileage_asc: [['mileage', true], ['created_at', false], ['id', true]],
+  year_desc: [['year', false], ['created_at', false], ['id', true]],
+};
+
+const SORT_ALIASES = { price: 'price_asc', mileage: 'mileage_asc', year: 'year_desc' };
+const BODY_TYPES = ['sedan', 'suv', 'hatchback', 'coupe', 'truck', 'van', 'convertible'];
+const FUEL_TYPES = ['petrol', 'diesel', 'electric', 'hybrid'];
+const TRANSMISSIONS = ['manual', 'automatic'];
+
+function values(value, allowed) {
+  if (!value) return [];
+  return String(value).split(',').map((item) => item.trim().toLowerCase()).filter((item) => allowed.includes(item));
+}
+
+function numberParam(query, ...keys) {
+  for (const key of keys) {
+    if (query[key] === undefined || query[key] === '') continue;
+    const value = Number(query[key]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return undefined;
+}
+
+function safeSearchTerm(value) {
+  return String(value || '').trim().replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ');
+}
+
+/** GET /api/listings — active listings for the homepage and searchable results page. */
 async function getListings(req, res) {
   try {
-    const { type } = req.query;
-    const rawLimit = Number(req.query.limit);
-    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 24) : 8;
+    const { query: params } = req;
+    const requestedLimit = Number(params.limit);
+    const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+      ? Math.min(Math.floor(requestedLimit), 100)
+      : 8;
+    const pageValue = Number(params.page);
+    const page = Number.isFinite(pageValue) && pageValue > 0 ? Math.floor(pageValue) : 1;
+    const firstRow = (page - 1) * limit;
+    const lastRow = firstRow + limit - 1;
+    const type = String(params.type || params.purpose || '').toLowerCase();
+    const requestedSort = SORT_ALIASES[params.sort] || params.sort;
+    const priceColumn = type === 'rent' ? 'rental_price_daily' : 'price';
+    const sort = (SORTS[requestedSort] || SORTS.newest).map(([column, ascending]) => [
+      column === 'price' ? priceColumn : column,
+      ascending,
+    ]);
 
     let query = supabase
       .from('listings')
-      .select(
-        `
+      .select(`
         id,
         seller_id,
         title,
@@ -82,17 +122,61 @@ async function getListings(req, res) {
           is_verified,
           created_at
         )
-      `
-      )
+      `, { count: 'exact' })
       .eq('status', 'active')
-      .order('created_at', { ascending: false })
-      .limit(limit);
+      .range(firstRow, lastRow);
 
-    if (type === 'sale' || type === 'rent') {
-      query = query.eq('type', type);
+    for (const [column, ascending] of sort) {
+      query = query.order(column, { ascending, nullsFirst: false });
     }
 
-    const { data, error } = await query;
+    if (type === 'sale' || type === 'buy') query = query.eq('type', 'sale');
+    else if (type === 'rent') query = query.eq('type', 'rent');
+
+    const term = safeSearchTerm(params.q ?? params.search);
+    if (term) {
+      const pattern = `%${term}%`;
+      query = query.or([
+        `make.ilike.${pattern}`,
+        `model.ilike.${pattern}`,
+        `title.ilike.${pattern}`,
+        `description.ilike.${pattern}`,
+      ].join(','));
+    }
+
+    for (const [column, key] of [['make', 'make'], ['model', 'model'], ['location', 'location']]) {
+      if (params[key]) query = query.ilike(column, `%${safeSearchTerm(params[key])}%`);
+    }
+
+    const minPrice = numberParam(params, 'minPrice', 'priceMin');
+    const maxPrice = numberParam(params, 'maxPrice', 'priceMax');
+    const minYear = numberParam(params, 'minYear', 'yearMin');
+    const maxYear = numberParam(params, 'maxYear', 'yearMax');
+    const maxMileage = numberParam(params, 'maxMileage', 'mileageMax');
+    if (minPrice !== undefined) query = query.gte(priceColumn, minPrice);
+    if (maxPrice !== undefined) query = query.lte(priceColumn, maxPrice);
+    if (minYear !== undefined) query = query.gte('year', minYear);
+    if (maxYear !== undefined) query = query.lte('year', maxYear);
+    if (maxMileage !== undefined) query = query.lte('mileage', maxMileage);
+
+    const bodyTypes = values(params.bodyType ?? params.body, BODY_TYPES);
+    const fuelTypes = values(params.fuelType ?? params.fuel, FUEL_TYPES);
+    const transmissions = values(params.transmission, TRANSMISSIONS);
+    if (bodyTypes.length === 1) query = query.eq('body_type', bodyTypes[0]);
+    else if (bodyTypes.length > 1) query = query.in('body_type', bodyTypes);
+    if (fuelTypes.length === 1) query = query.eq('fuel_type', fuelTypes[0]);
+    else if (fuelTypes.length > 1) query = query.in('fuel_type', fuelTypes);
+    if (transmissions.length === 1) query = query.eq('transmission', transmissions[0]);
+    else if (transmissions.length > 1) query = query.in('transmission', transmissions);
+
+    if (params.color) {
+      const colors = String(params.color).split(',').map((color) => color.trim()).filter(Boolean);
+      if (colors.length === 1) query = query.ilike('color', colors[0]);
+      else if (colors.length > 1) query = query.in('color', colors);
+    }
+    if (params.verified === 'true') query = query.eq('seller.is_verified', true);
+
+    const { data, error, count } = await query;
 
     if (error) {
       return res.status(500).json({
@@ -102,7 +186,7 @@ async function getListings(req, res) {
       });
     }
 
-    return res.json({ listings: (data || []).map(mapListingRow) });
+    return res.json({ listings: (data || []).map(mapListingRow), total: count || 0, page, limit });
   } catch (err) {
     return res.status(500).json({ error: err.message || 'Failed to fetch listings' });
   }

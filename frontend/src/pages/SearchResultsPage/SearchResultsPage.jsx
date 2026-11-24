@@ -1,56 +1,77 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle, ArrowUpDown, ChevronLeft, ChevronRight,
-  LayoutGrid, List, Search, SearchX, ShieldCheck, SlidersHorizontal, X,
+  ChevronLeft, ChevronRight, LayoutGrid, List, Search, SearchX, ShieldCheck,
 } from 'lucide-react';
 import { Navbar } from '../../component/Navbar/Navbar';
 import { Footer } from '../../component/Footer/Footer';
 import { Container } from '../../component/Container/Container';
 import { Input, Select } from '../../component/Input/Input';
 import { Button } from '../../component/Button/Button';
+import { Tabs } from '../../component/Tabs/Tabs';
 import { ListingCard, ListingCardSkeleton } from '../../component/ListingCard/ListingCard';
-import { SectionHeader } from '../../component/SectionHeader/SectionHeader';
-import { mockListings } from '../../data/mockListings';
-import { filterListings, parseListingFilters } from '../../utils/filterListings';
-import { cn, formatNumber } from '../../lib/utils';
+import { parseListingFilters } from '../../utils/filterListings';
+import { cn } from '../../lib/utils';
 import './SearchResultsPage.css';
 
 const perPage = 12;
 
 export function SearchResultsPage() {
   const [params, setParams] = useState(() => new URLSearchParams(window.location.search));
-  const [keyword, setKeyword] = useState(() => params.get('q') ?? '');
+  const [keyword, setKeyword] = useState(() => params.get('q') ?? params.get('search') ?? '');
   const [loading, setLoading] = useState(true);
-  const [sortOpen, setSortOpen] = useState(false);
+  const [listings, setListings] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [error, setError] = useState('');
   const resultsTop = useRef(null);
   const filters = useMemo(() => parseListingFilters(params), [params]);
-  const results = useMemo(() => filterListings(mockListings, filters), [filters]);
-  const totalPages = Math.max(1, Math.ceil(results.length / perPage));
-  const page = Math.min(filters.page, totalPages);
-  const pageResults = results.slice((page - 1) * perPage, page * perPage);
+  const activeType = filters.type || 'sale';
+  const page = filters.page;
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
 
   useEffect(() => {
     const onPopState = () => {
       const next = new URLSearchParams(window.location.search);
       setParams(next);
-      setKeyword(next.get('q') ?? '');
+      setKeyword(next.get('q') ?? next.get('search') ?? '');
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
   useEffect(() => {
-    setLoading(true);
-    const timer = window.setTimeout(() => setLoading(false), 400);
-    return () => window.clearTimeout(timer);
-  }, [params.toString()]);
-
-  useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (keyword !== (params.get('q') ?? '')) updateParam('q', keyword || undefined);
+      if (keyword !== (params.get('q') ?? params.get('search') ?? '')) updateParam('q', keyword || undefined);
     }, 300);
     return () => window.clearTimeout(timer);
   }, [keyword]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError('');
+    const timer = window.setTimeout(async () => {
+      try {
+        const query = new URLSearchParams(params);
+        query.set('limit', String(perPage));
+        if (!query.has('type') && !query.has('purpose')) query.set('type', 'sale');
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+        const response = await fetch(`${apiBase}/listings?${query}`, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not load listings.');
+        setListings(Array.isArray(data.listings) ? data.listings : []);
+        setTotal(Number(data.total) || 0);
+      } catch (fetchError) {
+        if (fetchError.name !== 'AbortError') {
+          setListings([]);
+          setTotal(0);
+          setError(fetchError.message || 'Could not load listings.');
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 200);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [params.toString()]);
 
   const commit = (next) => {
     const query = next.toString();
@@ -67,15 +88,16 @@ export function SearchResultsPage() {
     const next = new URLSearchParams(params);
     if (value === undefined || value === '') next.delete(key);
     else next.set(key, value);
-    if (key === 'type') { next.delete('priceMin'); next.delete('priceMax'); }
+    if (key === 'type') {
+      next.delete('priceMin'); next.delete('priceMax');
+      next.delete('minPrice'); next.delete('maxPrice');
+    }
     if (key !== 'page') next.delete('page');
     commit(next);
   };
 
   const clearAll = () => {
-    const preserved = new URLSearchParams();
-    if (params.get('view')) preserved.set('view', params.get('view'));
-    commit(preserved);
+    commit(new URLSearchParams({ type: activeType }));
     setKeyword('');
   };
 
@@ -84,9 +106,9 @@ export function SearchResultsPage() {
     window.setTimeout(() => resultsTop.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
-  const title = filters.type === 'rent' ? 'Cars for rent' : filters.type === 'sale' ? 'Cars for sale' : 'All cars';
-  const rangeStart = results.length ? (page - 1) * perPage + 1 : 0;
-  const rangeEnd = Math.min(page * perPage, results.length);
+  const title = activeType === 'rent' ? 'Cars for rent' : 'Cars for sale';
+  const rangeStart = total ? (page - 1) * perPage + 1 : 0;
+  const rangeEnd = Math.min((page - 1) * perPage + listings.length, total);
 
   return (
     <>
@@ -97,16 +119,23 @@ export function SearchResultsPage() {
             <a href="/" className="hover:text-accent">Home</a>
             <span className="mx-2">/</span>
             <span className="font-medium text-primary">
-              {filters.type === 'rent' ? 'Rent' : filters.type === 'sale' ? 'Buy' : 'Search'}
+              {activeType === 'rent' ? 'Rent' : 'Buy'}
             </span>
           </nav>
 
           <div className="mt-5 flex flex-wrap items-baseline gap-3">
             <h1 className="text-[2rem] font-bold leading-10 text-text-primary">{title}</h1>
             <span aria-live="polite" className={cn('text-base text-text-secondary', loading && 'opacity-50')}>
-              {results.length} results
+              {total} results
             </span>
           </div>
+
+          <Tabs
+            className="mt-5"
+            items={[{ value: 'sale', label: 'For sale' }, { value: 'rent', label: 'For rent' }]}
+            value={activeType}
+            onChange={(type) => updateParam('type', type)}
+          />
 
           <div className="mt-6">
             <Input
@@ -122,7 +151,7 @@ export function SearchResultsPage() {
           <div ref={resultsTop} className="mt-8 min-w-0 scroll-mt-28">
             <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p aria-live="polite" className={cn('text-sm text-text-secondary', loading && 'opacity-50')}>
-                Showing {rangeStart}–{rangeEnd} of {results.length} cars
+                Showing {rangeStart}–{rangeEnd} of {total} cars
               </p>
               <div className="flex items-center gap-2">
                 <Select label="Sort results" hideLabel value={filters.sort} onChange={(e) => updateParam('sort', e.target.value)} className="w-48">
@@ -155,14 +184,16 @@ export function SearchResultsPage() {
               <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }, (_, i) => <ListingCardSkeleton key={i} />)}
               </div>
-            ) : results.length === 0 ? (
+            ) : error ? (
+              <div role="alert" className="rounded-card border bg-surface px-6 py-10 text-center text-text-secondary">{error}</div>
+            ) : total === 0 ? (
               <EmptyState onClear={clearAll} />
             ) : (
-              <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                {pageResults.map((listing, index) => (
+              <div className={filters.view === 'list' ? 'flex flex-col gap-4' : 'grid gap-6 sm:grid-cols-2 xl:grid-cols-3'}>
+                {listings.map((listing, index) => (
                   <Fragment key={listing.id}>
-                    <ListingCard listing={listing} />
-                    {index === 5 && (
+                    <ListingCard listing={listing} layout={filters.view} />
+                    {filters.view === 'grid' && index === 5 && (
                       <div className="col-span-full flex flex-col gap-4 rounded-card border border-accent/20 bg-accent-soft p-5 sm:flex-row sm:items-center">
                         <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-surface text-success">
                           <ShieldCheck className="size-5" />
@@ -180,7 +211,7 @@ export function SearchResultsPage() {
               </div>
             )}
 
-            {!loading && results.length > 0 && (
+            {!loading && total > 0 && (
               <Pagination page={page} totalPages={totalPages} onChange={changePage} />
             )}
           </div>
