@@ -1,33 +1,71 @@
 # AutoHub
 
-Software Eng Project
+**Software Engineering Project**
 
-when u clone the repo or u pull it for the first time u need to :
-  cd frontend
-  npm install
-  cd backend
-  npm install
-  u need also to create the .env file in both the frontend and backend and put in it
-    the credentials
+## Getting Started
 
+When you clone the repository or pull it for the first time, follow these steps:
 
-backend folder
-  confic :the folder that will contain the file where we r going to
-    to the database
-  controller: the folder that contain all the function that implement the logic
-    of the backend
-  middleware: the folder contains all the intermediate functions
-  router: the folder that contains all the route of out app (get post put
-    delete ...)
+### 1. Install Dependencies
 
-frontend folder
-  src: all the work will be on the src folder
-  assets: the folder containing all the images of our project
-  pages :the folder that contain file pages of our website
-  component:it is the folder containing the components of the project
+Install the dependencies for both the frontend and backend:
 
-important notes :
-  when u r going to create a page or a component u need to create a folder with the
-    name of the page or the component and put inside it the .css and .jsx files
-  put all the credentials in the .env file like : the credential of database ,the
-    credentials of claudinary where we put the images ...
+```bash
+# Install frontend dependencies
+cd frontend
+npm install
+
+# Install backend dependencies
+cd ../backend
+npm install
+```
+
+### 2. Configure Environment Variables
+
+Create a `.env` file in both the `frontend` and `backend` directories.
+
+Add the required credentials and configuration variables to the corresponding files.
+
+For example:
+- Database credentials
+- Cloudinary credentials for image storage
+- Other required application credentials
+
+**Important:** Never upload your `.env` files or expose your credentials in the repository.
+
+---
+
+## Project Structure
+
+### Backend
+
+The `backend` folder contains the server-side code.
+
+- **config:** Contains the configuration files, including the database connection configuration.
+- **controller:** Contains the functions that implement the backend application logic.
+- **middleware:** Contains the middleware functions used in the application.
+- **router:** Contains all application routes, such as `GET`, `POST`, `PUT`, and `DELETE`.
+
+### Frontend
+
+The `frontend` folder contains the client-side code.
+
+- **src:** Contains the main source code of the frontend application.
+- **assets:** Contains project images and other static assets.
+- **pages:** Contains the files related to the different pages of the website.
+- **component:** Contains the reusable components used throughout the project.
+
+---
+
+## Important Notes
+
+1. Whenever you create a new page or component, create a separate folder using its name.
+2. Inside that folder, include:
+   - A `.jsx` file for the component or page.
+   - A `.css` file for its styling.
+3. Store all credentials and sensitive configuration values in the appropriate `.env` files, including:
+   - Database credentials.
+   - Cloudinary credentials used for image storage.
+   - Any other application credentials.
+
+**Always keep sensitive credentials out of the source code and never commit `.env` files to GitHub.**
